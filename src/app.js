@@ -286,9 +286,10 @@ export async function createKnockServer(overrides = {}) {
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
+        const issues = error.issues || error.errors || [];
         sendJson(response, 400, {
           error: "validation_error",
-          message: error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ")
+          message: issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ")
         });
         return;
       }

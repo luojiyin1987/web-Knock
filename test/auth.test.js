@@ -366,6 +366,29 @@ test("loadConfig honors explicit env object including trustProxy", () => {
   assert.equal(config.trustProxy, true);
 });
 
+test("createKnockServer honors passwordAlgorithm override during user normalization", async () => {
+  const { server, config } = await createKnockServer({
+    port: 0,
+    passwordAlgorithm: "plaintext",
+    users: [
+      {
+        id: "user-alice",
+        username: "alice",
+        password: "knock-knock",
+        displayName: "Alice Chen",
+        roles: ["admin"]
+      }
+    ]
+  });
+
+  try {
+    assert.equal(config.passwordAlgorithm, "plaintext");
+    assert.equal(config.users[0].passwordRecord.algorithm, "plaintext");
+  } finally {
+    server.close();
+  }
+});
+
 test("login-backoff implements exponential delay", () => {
   _resetBackoffState();
   const ip = "10.0.0.1";
@@ -543,6 +566,7 @@ test("session endpoint accepts cookie session", async () => {
     assert.equal(sessionRes.status, 200);
     const body = await sessionRes.json();
     assert.equal(body.session.user.username, "alice");
+    assert.equal(typeof body.session.expiresAt, "number");
   } finally {
     server.close();
   }
@@ -609,15 +633,49 @@ test("logout clears session cookie and destroys session", async () => {
   }
 });
 
+test("logout with unknown session cookie does not report revocation", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const logoutRes = await fetch(`${baseUrl}/v1/auth/logout`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: "knock_session=missing-session"
+      },
+      body: JSON.stringify({})
+    });
+    assert.equal(logoutRes.status, 200);
+    const body = await logoutRes.json();
+    assert.equal(body.revoked, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("login route is served for browser forwardauth redirects", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const res = await fetch(`${baseUrl}/_login?callback=%2Fprotected`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(body.includes("Knock Gateway Console"));
+  } finally {
+    server.close();
+  }
+});
+
 test("forwardauth returns 302 for unauthenticated html request", async () => {
   const { server, baseUrl } = await startTestServer();
   try {
     const res = await fetch(`${baseUrl}/_auth`, {
-      headers: { accept: "text/html" },
+      headers: {
+        accept: "text/html",
+        "x-forwarded-uri": "/protected/resource"
+      },
       redirect: "manual"
     });
     assert.equal(res.status, 302);
-    assert.ok(res.headers.get("location").includes("/_login"));
+    assert.equal(res.headers.get("location"), "/_login?callback=%2Fprotected%2Fresource");
   } finally {
     server.close();
   }

@@ -10,6 +10,7 @@ export function createAuthStore(config) {
   const users = new Map(config.users.map((user) => [user.username, user]));
   const refreshTokens = new Map();
   const revokedAccessTokens = new Map();
+  const sessions = new Map();
 
   function getClient(clientId) {
     return clients.get(clientId) ?? null;
@@ -34,6 +35,57 @@ export function createAuthStore(config) {
         revokedAccessTokens.delete(jti);
       }
     }
+  }
+
+  function purgeExpiredSessions() {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [sid, session] of sessions.entries()) {
+      if (now >= session.expiresAt) {
+        sessions.delete(sid);
+      }
+    }
+  }
+
+  function createSession({ client, user, scope }) {
+    purgeExpiredSessions();
+    const now = Math.floor(Date.now() / 1000);
+    const sessionId = createOpaqueToken();
+    sessions.set(sessionId, {
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      roles: user.roles,
+      clientId: client.id,
+      scope,
+      createdAt: now,
+      expiresAt: now + (config.sessionTtlSeconds || 86400)
+    });
+    return sessionId;
+  }
+
+  function verifySession(sessionId) {
+    purgeExpiredSessions();
+    const session = sessions.get(sessionId);
+    if (!session) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (now >= session.expiresAt) {
+      sessions.delete(sessionId);
+      return null;
+    }
+    return {
+      iss: config.issuer,
+      sub: session.userId,
+      aud: session.clientId,
+      client_id: session.clientId,
+      preferred_username: session.username,
+      name: session.displayName,
+      roles: session.roles,
+      scope: session.scope
+    };
+  }
+
+  function destroySession(sessionId) {
+    return sessions.delete(sessionId);
   }
 
   async function issueTokens({ client, user, requestedScopes = [] }) {
@@ -153,6 +205,9 @@ export function createAuthStore(config) {
     verifyToken,
     rotateRefreshToken,
     revokeRefreshToken,
-    revokeAccessToken
+    revokeAccessToken,
+    createSession,
+    verifySession,
+    destroySession
   };
 }

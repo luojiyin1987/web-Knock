@@ -87,6 +87,7 @@ Authorization: Bearer <access-token>
 - `KNOCK_TOKEN_SECRET`
 - `KNOCK_ACCESS_TTL_SECONDS`
 - `KNOCK_REFRESH_TTL_SECONDS`
+- `KNOCK_TRUST_PROXY`
 - `KNOCK_ALLOWED_ORIGINS`
 - `KNOCK_CLIENTS`
 - `KNOCK_USERS`
@@ -102,6 +103,8 @@ export KNOCK_USERS='[
   {"id":"user-1","username":"alice","password":"knock-knock","displayName":"Alice","roles":["admin"]}
 ]'
 ```
+
+`KNOCK_TRUST_PROXY` 默认为 `false`。只有当服务明确部署在受信任的反向代理后面时，才应设置为 `true`，这样登录限流才会基于 `X-Forwarded-For` 取客户端 IP。
 
 ## 后续建议
 

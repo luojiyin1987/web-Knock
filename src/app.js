@@ -19,6 +19,7 @@ import {
 } from "./lib/validators.js";
 import { getClientIp, normalizeIp } from "./lib/ip-utils.js";
 import { checkLoginBackoff, recordLoginFailure, clearLoginBackoff } from "./lib/login-backoff.js";
+import { isHtmlRequest, isApiRequest } from "./lib/content-negotiation.js";
 
 async function normalizeUsers(rawUsers, algorithm) {
   return Promise.all(
@@ -203,6 +204,38 @@ async function handleLogout(authStore, request, body) {
   return { status: 200, body: { revoked: refreshRevoked || accessRevoked } };
 }
 
+async function handleForwardAuth(authStore, request) {
+  const token = getBearerToken(request);
+  const claims = await authStore.verifyToken(token);
+
+  if (claims) {
+    return {
+      status: 200,
+      body: { authenticated: true },
+      headers: {
+        "x-forwarded-user": claims.preferred_username || claims.sub
+      }
+    };
+  }
+
+  if (isApiRequest(request)) {
+    return {
+      status: 401,
+      body: { error: "unauthorized", message: "Authentication required." }
+    };
+  }
+
+  // HTML request: redirect to login page
+  const callback = encodeURIComponent(request.url || "/");
+  return {
+    status: 302,
+    body: {},
+    headers: {
+      location: `/_login?callback=${callback}`
+    }
+  };
+}
+
 export async function createKnockServer(overrides = {}) {
   const baseConfig = loadConfig();
   const config = {
@@ -226,6 +259,11 @@ export async function createKnockServer(overrides = {}) {
     { method: "GET", path: "/", handler: async () => ({ static: "index.html" }) },
     { method: "GET", path: "/styles.css", handler: async () => ({ static: "styles.css" }) },
     { method: "GET", path: "/app.js", handler: async () => ({ static: "app.js" }) },
+    {
+      method: "GET",
+      path: "/_auth",
+      handler: async (req) => handleForwardAuth(authStore, req)
+    },
     {
       method: "POST",
       path: "/v1/auth/login",
@@ -288,6 +326,12 @@ export async function createKnockServer(overrides = {}) {
 
       if (result.static) {
         await sendStaticAsset(response, result.static);
+      } else if (result.headers) {
+        if (result.status >= 300 && result.status < 400) {
+          sendEmpty(response, result.status, result.headers);
+        } else {
+          sendJson(response, result.status, result.body, result.headers);
+        }
       } else {
         sendJson(response, result.status, result.body);
       }

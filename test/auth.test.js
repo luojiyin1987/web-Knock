@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createKnockServer } from "../src/app.js";
+import { _resetBackoffState } from "../src/lib/login-backoff.js";
+import { _resetScanState } from "../src/lib/scan-detector.js";
 
 async function startTestServer(overrides = {}) {
+  _resetBackoffState();
+  _resetScanState();
   const { server } = await createKnockServer({
     port: 0,
     issuer: "knock.test",
@@ -279,5 +283,189 @@ test("demo object does not leak secrets", async () => {
     // but here we just verify the public demo object shape.
   } finally {
     server.close();
+  }
+});
+
+// ─── Security module unit tests ───
+
+import {
+  checkLoginBackoff,
+  recordLoginFailure,
+  clearLoginBackoff
+} from "../src/lib/login-backoff.js";
+
+import {
+  recordScanFailure,
+  getScanStatus,
+  clearScanFailures
+} from "../src/lib/scan-detector.js";
+
+import { getClientIp, normalizeIp } from "../src/lib/ip-utils.js";
+
+test("ip-utils extracts client IP correctly", () => {
+  const reqForwarded = {
+    headers: { "x-forwarded-for": "203.0.113.1, 10.0.0.1" },
+    socket: { remoteAddress: "127.0.0.1" }
+  };
+  assert.equal(getClientIp(reqForwarded), "203.0.113.1");
+
+  const reqDirect = {
+    headers: {},
+    socket: { remoteAddress: "192.168.1.5" }
+  };
+  assert.equal(getClientIp(reqDirect), "192.168.1.5");
+
+  assert.equal(normalizeIp("::ffff:192.168.1.1"), "192.168.1.1");
+  assert.equal(normalizeIp("192.168.1.1"), "192.168.1.1");
+});
+
+test("login-backoff implements exponential delay", () => {
+  _resetBackoffState();
+  const ip = "10.0.0.1";
+
+  assert.equal(checkLoginBackoff(ip).blocked, false);
+
+  // First 2 failures are grace period — no block
+  const r1 = recordLoginFailure(ip);
+  assert.equal(r1.count, 1);
+  assert.equal(r1.delayMs, 0);
+  assert.equal(checkLoginBackoff(ip).blocked, false);
+
+  const r2 = recordLoginFailure(ip);
+  assert.equal(r2.count, 2);
+  assert.equal(r2.delayMs, 0);
+  assert.equal(checkLoginBackoff(ip).blocked, false);
+
+  // 3rd failure triggers 1s block
+  const r3 = recordLoginFailure(ip);
+  assert.equal(r3.count, 3);
+  assert.equal(r3.delayMs, 1000);
+  assert.equal(checkLoginBackoff(ip).blocked, true);
+
+  // 4th failure triggers 2s block
+  const r4 = recordLoginFailure(ip);
+  assert.equal(r4.count, 4);
+  assert.equal(r4.delayMs, 2000);
+
+  // 5th failure triggers 4s block
+  const r5 = recordLoginFailure(ip);
+  assert.equal(r5.count, 5);
+  assert.equal(r5.delayMs, 4000);
+
+  // Clearing removes block
+  clearLoginBackoff(ip);
+  assert.equal(checkLoginBackoff(ip).blocked, false);
+});
+
+test("scan-detector flags scanning after threshold", () => {
+  _resetScanState();
+  const ip = "10.0.0.2";
+
+  for (let i = 0; i < 4; i++) {
+    const status = recordScanFailure(ip);
+    assert.equal(status.isScanning, false);
+  }
+
+  const status = recordScanFailure(ip);
+  assert.equal(status.isScanning, true);
+  assert.equal(status.failureCount, 5);
+
+  clearScanFailures(ip);
+  assert.equal(getScanStatus(ip).isScanning, false);
+});
+
+// ─── Integration: login flow with security modules ───
+
+test("triggers login backoff after repeated failures", async () => {
+  const { server, baseUrl } = await startTestServer();
+  _resetBackoffState();
+  _resetScanState();
+
+  try {
+    // First 3 failures should return 401
+    for (let i = 0; i < 3; i++) {
+      const res = await fetch(`${baseUrl}/v1/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientId: "dashboard-web",
+          clientSecret: "dashboard-secret",
+          username: "alice",
+          password: "wrong"
+        })
+      });
+      assert.equal(res.status, 401);
+    }
+
+    // 4th failure triggers 1s backoff
+    const res = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "wrong"
+      })
+    });
+    assert.equal(res.status, 429);
+    const body = await res.json();
+    assert.equal(body.error, "login_backoff");
+    assert.ok(body.message.includes("Retry after"));
+  } finally {
+    server.close();
+    _resetBackoffState();
+    _resetScanState();
+  }
+});
+
+test("successful login clears backoff state", async () => {
+  const { server, baseUrl } = await startTestServer();
+  _resetBackoffState();
+  _resetScanState();
+
+  try {
+    // Trigger a failure first
+    const failRes = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "wrong"
+      })
+    });
+    assert.equal(failRes.status, 401);
+
+    // Successful login should clear state
+    const okRes = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    assert.equal(okRes.status, 200);
+
+    // Next failure should start from count=1, not be immediately blocked
+    const nextFail = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "wrong"
+      })
+    });
+    assert.equal(nextFail.status, 401);
+  } finally {
+    server.close();
+    _resetBackoffState();
+    _resetScanState();
   }
 });

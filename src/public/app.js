@@ -33,6 +33,8 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
     document.querySelector('#session-form textarea[name="accessToken"]').value = data.accessToken;
     document.querySelector('#introspect-form textarea[name="token"]').value = data.accessToken;
     document.querySelector('#refresh-form textarea[name="refreshToken"]').value = data.refreshToken;
+    document.querySelector('#logout-form textarea[name="accessToken"]').value = data.accessToken;
+    document.querySelector('#logout-form textarea[name="refreshToken"]').value = data.refreshToken;
   }
 });
 
@@ -54,6 +56,8 @@ document.querySelector("#refresh-form").addEventListener("submit", async (event)
     document.querySelector('#session-form textarea[name="accessToken"]').value = data.accessToken;
     document.querySelector('#introspect-form textarea[name="token"]').value = data.accessToken;
     document.querySelector('#refresh-form textarea[name="refreshToken"]').value = data.refreshToken;
+    document.querySelector('#logout-form textarea[name="accessToken"]').value = data.accessToken;
+    document.querySelector('#logout-form textarea[name="refreshToken"]').value = data.refreshToken;
   }
 });
 
@@ -61,6 +65,18 @@ document.querySelector("#introspect-form").addEventListener("submit", async (eve
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   await submitJson("/v1/auth/introspect", Object.fromEntries(form.entries()));
+});
+
+document.querySelector("#logout-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const accessToken = form.get("accessToken");
+  const refreshToken = form.get("refreshToken");
+  await submitJson(
+    "/v1/auth/logout",
+    { refreshToken, accessToken },
+    accessToken ? { authorization: `Bearer ${accessToken}` } : {}
+  );
 });
 
 clearButton.addEventListener("click", () => {

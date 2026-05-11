@@ -11,5 +11,9 @@
   "engines": {
     "node": ">=22"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "jose": "^6.2.3",
+    "zod": "^4.4.3"
+  }
 }

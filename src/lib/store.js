@@ -80,7 +80,9 @@ export function createAuthStore(config) {
       preferred_username: session.username,
       name: session.displayName,
       roles: session.roles,
-      scope: session.scope
+      scope: session.scope,
+      iat: session.createdAt,
+      exp: session.expiresAt
     };
   }
 

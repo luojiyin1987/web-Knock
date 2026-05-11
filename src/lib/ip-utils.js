@@ -1,13 +1,12 @@
-/**
- * Extract and normalize client IP from HTTP request.
- * Follows fn-knock pattern: prefers X-Forwarded-For, falls back to socket address.
- */
+export function getClientIp(request, { trustProxy = false } = {}) {
+  if (trustProxy) {
+    const forwarded = request.headers["x-forwarded-for"];
 
-export function getClientIp(request) {
-  const forwarded = request.headers["x-forwarded-for"];
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
+    if (forwarded) {
+      return forwarded.split(",")[0].trim();
+    }
   }
+
   return request.socket?.remoteAddress || "unknown";
 }
 

@@ -89,8 +89,10 @@ export function loadConfig(env = process.env) {
     tokenSecret: env.KNOCK_TOKEN_SECRET ?? "dev-knock-secret-change-me",
     accessTtlSeconds: parseNumber(env, "KNOCK_ACCESS_TTL_SECONDS", 900),
     refreshTtlSeconds: parseNumber(env, "KNOCK_REFRESH_TTL_SECONDS", 604800),
+    sessionTtlSeconds: parseNumber(env, "KNOCK_SESSION_TTL_SECONDS", 86400),
     trustProxy: parseBoolean(env, "KNOCK_TRUST_PROXY", false),
     passwordAlgorithm: env.KNOCK_PASSWORD_ALGORITHM ?? "scrypt",
+    cookieDomain: env.KNOCK_COOKIE_DOMAIN || undefined,
     clients,
     users,
     allowedOrigins

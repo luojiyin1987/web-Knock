@@ -17,6 +17,9 @@ import {
   introspectSchema,
   logoutSchema
 } from "./lib/validators.js";
+import { getClientIp, normalizeIp } from "./lib/ip-utils.js";
+import { checkLoginBackoff, recordLoginFailure, clearLoginBackoff } from "./lib/login-backoff.js";
+import { recordScanFailure, clearScanFailures } from "./lib/scan-detector.js";
 
 async function normalizeUsers(rawUsers) {
   return Promise.all(
@@ -47,10 +50,26 @@ function sanitizeClient(client) {
   };
 }
 
-async function handleLogin(authStore, body) {
+async function handleLogin(authStore, request, body) {
+  const clientIp = normalizeIp(getClientIp(request));
+
+  // 1. Check exponential backoff
+  const backoff = checkLoginBackoff(clientIp);
+  if (backoff.blocked) {
+    return {
+      status: 429,
+      body: {
+        error: "login_backoff",
+        message: `Too many failed attempts. Retry after ${backoff.remainingSeconds}s.`
+      }
+    };
+  }
+
   const parsed = loginSchema.parse(body);
   const client = authStore.validateClient(parsed.clientId, parsed.clientSecret);
   if (!client) {
+    recordLoginFailure(clientIp);
+    recordScanFailure(clientIp);
     return {
       status: 401,
       body: { error: "invalid_client", message: "Client credentials are invalid." }
@@ -59,11 +78,17 @@ async function handleLogin(authStore, body) {
 
   const user = authStore.getUserByUsername(parsed.username);
   if (!user || !(await verifyPassword(parsed.password ?? "", user.passwordRecord))) {
+    recordLoginFailure(clientIp);
+    recordScanFailure(clientIp);
     return {
       status: 401,
       body: { error: "invalid_credentials", message: "Username or password is invalid." }
     };
   }
+
+  // Successful login: clear security state for this IP
+  clearLoginBackoff(clientIp);
+  clearScanFailures(clientIp);
 
   const tokens = await authStore.issueTokens({
     client,
@@ -197,7 +222,7 @@ export async function createKnockServer(overrides = {}) {
     {
       method: "POST",
       path: "/v1/auth/login",
-      handler: async (_req, body) => handleLogin(authStore, body)
+      handler: async (req, body) => handleLogin(authStore, req, body)
     },
     {
       method: "POST",

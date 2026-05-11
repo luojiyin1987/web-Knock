@@ -5,26 +5,44 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "geolocation=(), microphone=(), camera=()"
+};
+
 export function sendJson(response, statusCode, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload, null, 2);
 
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),
+    ...SECURITY_HEADERS,
     ...extraHeaders
   });
   response.end(body);
 }
 
 export function sendEmpty(response, statusCode, extraHeaders = {}) {
-  response.writeHead(statusCode, extraHeaders);
+  response.writeHead(statusCode, {
+    ...SECURITY_HEADERS,
+    ...extraHeaders
+  });
   response.end();
 }
 
-export async function readJsonBody(request) {
+export async function readJsonBody(request, maxBytes = 65536) {
   const chunks = [];
+  let received = 0;
 
   for await (const chunk of request) {
+    received += chunk.length;
+    if (received > maxBytes) {
+      const error = new Error("Request body too large");
+      error.statusCode = 413;
+      throw error;
+    }
     chunks.push(chunk);
   }
 
@@ -37,7 +55,9 @@ export async function readJsonBody(request) {
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error("Request body must be valid JSON");
+    const error = new Error("Request body must be valid JSON");
+    error.statusCode = 400;
+    throw error;
   }
 }
 
@@ -63,7 +83,8 @@ export async function sendStaticAsset(response, relativePath) {
 
   response.writeHead(200, {
     "content-type": contentType,
-    "content-length": file.length
+    "content-length": file.length,
+    ...SECURITY_HEADERS
   });
   response.end(file);
 }

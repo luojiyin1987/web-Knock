@@ -19,7 +19,6 @@ import {
 } from "./lib/validators.js";
 import { getClientIp, normalizeIp } from "./lib/ip-utils.js";
 import { checkLoginBackoff, recordLoginFailure, clearLoginBackoff } from "./lib/login-backoff.js";
-import { recordScanFailure, clearScanFailures } from "./lib/scan-detector.js";
 
 async function normalizeUsers(rawUsers) {
   return Promise.all(
@@ -50,8 +49,8 @@ function sanitizeClient(client) {
   };
 }
 
-async function handleLogin(authStore, request, body) {
-  const clientIp = normalizeIp(getClientIp(request));
+async function handleLogin(authStore, request, body, config) {
+  const clientIp = normalizeIp(getClientIp(request, { trustProxy: config.trustProxy }));
 
   // 1. Check exponential backoff
   const backoff = checkLoginBackoff(clientIp);
@@ -69,7 +68,6 @@ async function handleLogin(authStore, request, body) {
   const client = authStore.validateClient(parsed.clientId, parsed.clientSecret);
   if (!client) {
     recordLoginFailure(clientIp);
-    recordScanFailure(clientIp);
     return {
       status: 401,
       body: { error: "invalid_client", message: "Client credentials are invalid." }
@@ -79,7 +77,6 @@ async function handleLogin(authStore, request, body) {
   const user = authStore.getUserByUsername(parsed.username);
   if (!user || !(await verifyPassword(parsed.password ?? "", user.passwordRecord))) {
     recordLoginFailure(clientIp);
-    recordScanFailure(clientIp);
     return {
       status: 401,
       body: { error: "invalid_credentials", message: "Username or password is invalid." }
@@ -88,7 +85,6 @@ async function handleLogin(authStore, request, body) {
 
   // Successful login: clear security state for this IP
   clearLoginBackoff(clientIp);
-  clearScanFailures(clientIp);
 
   const tokens = await authStore.issueTokens({
     client,
@@ -189,9 +185,20 @@ async function handleSession(authStore, request) {
 async function handleLogout(authStore, request, body) {
   const parsed = logoutSchema.parse(body);
   const bearerToken = getBearerToken(request);
+  const accessToken = parsed.accessToken ?? bearerToken;
+
+  if (!parsed.refreshToken && !accessToken) {
+    return {
+      status: 400,
+      body: {
+        error: "validation_error",
+        message: "Either refreshToken, accessToken, or Authorization Bearer token must be provided."
+      }
+    };
+  }
 
   const refreshRevoked = authStore.revokeRefreshToken(parsed.refreshToken);
-  const accessRevoked = await authStore.revokeAccessToken(parsed.accessToken ?? bearerToken);
+  const accessRevoked = await authStore.revokeAccessToken(accessToken);
 
   return { status: 200, body: { revoked: refreshRevoked || accessRevoked } };
 }
@@ -222,7 +229,7 @@ export async function createKnockServer(overrides = {}) {
     {
       method: "POST",
       path: "/v1/auth/login",
-      handler: async (req, body) => handleLogin(authStore, req, body)
+      handler: async (req, body) => handleLogin(authStore, req, body, config)
     },
     {
       method: "POST",

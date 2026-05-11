@@ -1,5 +1,6 @@
 const output = document.querySelector("#output");
 const clearButton = document.querySelector("#clear-output");
+const callbackPath = new URLSearchParams(window.location.search).get("callback");
 
 function writeOutput(payload) {
   output.textContent = JSON.stringify(payload, null, 2);
@@ -35,6 +36,10 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
     document.querySelector('#refresh-form textarea[name="refreshToken"]').value = data.refreshToken;
     document.querySelector('#logout-form textarea[name="accessToken"]').value = data.accessToken;
     document.querySelector('#logout-form textarea[name="refreshToken"]').value = data.refreshToken;
+
+    if (callbackPath) {
+      window.location.assign(callbackPath);
+    }
   }
 });
 

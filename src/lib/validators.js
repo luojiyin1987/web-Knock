@@ -24,8 +24,4 @@ export const logoutSchema = z
   .object({
     refreshToken: z.string().optional(),
     accessToken: z.string().optional()
-  })
-  .refine((data) => data.refreshToken || data.accessToken, {
-    message: "Either refreshToken or accessToken must be provided",
-    path: ["refreshToken"]
   });

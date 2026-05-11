@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createKnockServer } from "../src/app.js";
 import { _resetBackoffState } from "../src/lib/login-backoff.js";
-import { _resetScanState } from "../src/lib/scan-detector.js";
+import { getClientIp, normalizeIp } from "../src/lib/ip-utils.js";
+import { loadConfig } from "../src/config.js";
 
 async function startTestServer(overrides = {}) {
   _resetBackoffState();
-  _resetScanState();
   const { server } = await createKnockServer({
     port: 0,
     issuer: "knock.test",
@@ -128,6 +128,46 @@ test("login, session, refresh, introspect, and logout flow works", async () => {
       }
     });
 
+    assert.equal(revokedSessionResponse.status, 401);
+  } finally {
+    server.close();
+  }
+});
+
+test("logout accepts bearer token without accessToken in request body", async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    const loginPayload = await loginResponse.json();
+
+    const logoutResponse = await fetch(`${baseUrl}/v1/auth/logout`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${loginPayload.accessToken}`
+      },
+      body: JSON.stringify({})
+    });
+
+    assert.equal(logoutResponse.status, 200);
+    const logoutPayload = await logoutResponse.json();
+    assert.equal(logoutPayload.revoked, true);
+
+    const revokedSessionResponse = await fetch(`${baseUrl}/v1/auth/session`, {
+      headers: {
+        authorization: `Bearer ${loginPayload.accessToken}`
+      }
+    });
     assert.equal(revokedSessionResponse.status, 401);
   } finally {
     server.close();
@@ -294,20 +334,13 @@ import {
   clearLoginBackoff
 } from "../src/lib/login-backoff.js";
 
-import {
-  recordScanFailure,
-  getScanStatus,
-  clearScanFailures
-} from "../src/lib/scan-detector.js";
-
-import { getClientIp, normalizeIp } from "../src/lib/ip-utils.js";
-
 test("ip-utils extracts client IP correctly", () => {
   const reqForwarded = {
     headers: { "x-forwarded-for": "203.0.113.1, 10.0.0.1" },
     socket: { remoteAddress: "127.0.0.1" }
   };
-  assert.equal(getClientIp(reqForwarded), "203.0.113.1");
+  assert.equal(getClientIp(reqForwarded), "127.0.0.1");
+  assert.equal(getClientIp(reqForwarded, { trustProxy: true }), "203.0.113.1");
 
   const reqDirect = {
     headers: {},
@@ -317,6 +350,20 @@ test("ip-utils extracts client IP correctly", () => {
 
   assert.equal(normalizeIp("::ffff:192.168.1.1"), "192.168.1.1");
   assert.equal(normalizeIp("192.168.1.1"), "192.168.1.1");
+});
+
+test("loadConfig honors explicit env object including trustProxy", () => {
+  const config = loadConfig({
+    PORT: "4100",
+    KNOCK_ACCESS_TTL_SECONDS: "120",
+    KNOCK_REFRESH_TTL_SECONDS: "3600",
+    KNOCK_TRUST_PROXY: "true"
+  });
+
+  assert.equal(config.port, 4100);
+  assert.equal(config.accessTtlSeconds, 120);
+  assert.equal(config.refreshTtlSeconds, 3600);
+  assert.equal(config.trustProxy, true);
 });
 
 test("login-backoff implements exponential delay", () => {
@@ -357,29 +404,11 @@ test("login-backoff implements exponential delay", () => {
   assert.equal(checkLoginBackoff(ip).blocked, false);
 });
 
-test("scan-detector flags scanning after threshold", () => {
-  _resetScanState();
-  const ip = "10.0.0.2";
-
-  for (let i = 0; i < 4; i++) {
-    const status = recordScanFailure(ip);
-    assert.equal(status.isScanning, false);
-  }
-
-  const status = recordScanFailure(ip);
-  assert.equal(status.isScanning, true);
-  assert.equal(status.failureCount, 5);
-
-  clearScanFailures(ip);
-  assert.equal(getScanStatus(ip).isScanning, false);
-});
-
 // ─── Integration: login flow with security modules ───
 
 test("triggers login backoff after repeated failures", async () => {
   const { server, baseUrl } = await startTestServer();
   _resetBackoffState();
-  _resetScanState();
 
   try {
     // First 3 failures should return 401
@@ -415,14 +444,12 @@ test("triggers login backoff after repeated failures", async () => {
   } finally {
     server.close();
     _resetBackoffState();
-    _resetScanState();
   }
 });
 
 test("successful login clears backoff state", async () => {
   const { server, baseUrl } = await startTestServer();
   _resetBackoffState();
-  _resetScanState();
 
   try {
     // Trigger a failure first
@@ -466,6 +493,5 @@ test("successful login clears backoff state", async () => {
   } finally {
     server.close();
     _resetBackoffState();
-    _resetScanState();
   }
 });

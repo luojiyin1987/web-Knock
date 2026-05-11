@@ -1,31 +1,14 @@
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+/**
+ * Backward-compatible password API.
+ * Delegates to the plugin-based password-algorithms module.
+ */
 
-const KEY_LENGTH = 64;
-const scryptAsync = promisify(scrypt);
+import { createPasswordRecord as createRecord, verifyPassword as verify } from "./password-algorithms.js";
 
-export async function createPasswordRecord(password) {
-  const salt = randomBytes(16).toString("hex");
-  const hash = (await scryptAsync(password, salt, KEY_LENGTH)).toString("hex");
-
-  return {
-    algorithm: "scrypt",
-    salt,
-    hash
-  };
+export async function createPasswordRecord(password, algorithm = "scrypt") {
+  return createRecord(algorithm, password);
 }
 
 export async function verifyPassword(password, passwordRecord) {
-  if (!passwordRecord?.salt || !passwordRecord?.hash) {
-    return false;
-  }
-
-  const candidate = await scryptAsync(password, passwordRecord.salt, KEY_LENGTH);
-  const expected = Buffer.from(passwordRecord.hash, "hex");
-
-  if (candidate.length !== expected.length) {
-    return false;
-  }
-
-  return timingSafeEqual(candidate, expected);
+  return verify(password, passwordRecord);
 }

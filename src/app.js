@@ -20,14 +20,14 @@ import {
 import { getClientIp, normalizeIp } from "./lib/ip-utils.js";
 import { checkLoginBackoff, recordLoginFailure, clearLoginBackoff } from "./lib/login-backoff.js";
 
-async function normalizeUsers(rawUsers) {
+async function normalizeUsers(rawUsers, algorithm) {
   return Promise.all(
     rawUsers.map(async (user) => {
       if (user.passwordRecord) return user;
       if (!user.password) {
         throw new Error(`User ${user.username} is missing password or passwordRecord`);
       }
-      return { ...user, passwordRecord: await createPasswordRecord(user.password) };
+      return { ...user, passwordRecord: await createPasswordRecord(user.password, algorithm) };
     })
   );
 }
@@ -209,7 +209,7 @@ export async function createKnockServer(overrides = {}) {
     ...baseConfig,
     ...overrides,
     clients: overrides.clients ?? baseConfig.clients,
-    users: await normalizeUsers(overrides.users ?? baseConfig.users),
+    users: await normalizeUsers(overrides.users ?? baseConfig.users, baseConfig.passwordAlgorithm),
     allowedOrigins: overrides.allowedOrigins ?? baseConfig.allowedOrigins
   };
   const authStore = createAuthStore(config);

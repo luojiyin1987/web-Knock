@@ -90,6 +90,7 @@ export function loadConfig(env = process.env) {
     accessTtlSeconds: parseNumber(env, "KNOCK_ACCESS_TTL_SECONDS", 900),
     refreshTtlSeconds: parseNumber(env, "KNOCK_REFRESH_TTL_SECONDS", 604800),
     trustProxy: parseBoolean(env, "KNOCK_TRUST_PROXY", false),
+    passwordAlgorithm: env.KNOCK_PASSWORD_ALGORITHM ?? "scrypt",
     clients,
     users,
     allowedOrigins

@@ -17,11 +17,9 @@ export function createAuthStore(config) {
 
   function validateClient(clientId, clientSecret) {
     const client = getClient(clientId);
-
     if (!client || client.secret !== clientSecret) {
       return null;
     }
-
     return client;
   }
 
@@ -31,7 +29,6 @@ export function createAuthStore(config) {
 
   function purgeExpiredRevocations() {
     const now = Math.floor(Date.now() / 1000);
-
     for (const [jti, expiresAt] of revokedAccessTokens.entries()) {
       if (now >= expiresAt) {
         revokedAccessTokens.delete(jti);
@@ -39,7 +36,7 @@ export function createAuthStore(config) {
     }
   }
 
-  function issueTokens({ client, user, requestedScopes = [] }) {
+  async function issueTokens({ client, user, requestedScopes = [] }) {
     purgeExpiredRevocations();
 
     const now = Math.floor(Date.now() / 1000);
@@ -50,7 +47,7 @@ export function createAuthStore(config) {
     const accessJti = createTokenId();
     const refreshToken = createOpaqueToken();
     const refreshTokenId = digestToken(refreshToken);
-    const accessToken = signAccessToken(
+    const accessToken = await signAccessToken(
       {
         iss: config.issuer,
         sub: user.id,
@@ -92,9 +89,9 @@ export function createAuthStore(config) {
     };
   }
 
-  function verifyToken(token) {
+  async function verifyToken(token) {
     purgeExpiredRevocations();
-    const claims = verifyAccessToken(token, config.tokenSecret);
+    const claims = await verifyAccessToken(token, config.tokenSecret);
 
     if (!claims) {
       return null;
@@ -107,7 +104,7 @@ export function createAuthStore(config) {
     return claims;
   }
 
-  function rotateRefreshToken({ client, refreshToken }) {
+  async function rotateRefreshToken({ client, refreshToken }) {
     const now = Math.floor(Date.now() / 1000);
     const tokenId = digestToken(refreshToken);
     const existing = refreshTokens.get(tokenId);
@@ -134,12 +131,11 @@ export function createAuthStore(config) {
     if (!refreshToken) {
       return false;
     }
-
     return refreshTokens.delete(digestToken(refreshToken));
   }
 
-  function revokeAccessToken(token) {
-    const claims = verifyAccessToken(token, config.tokenSecret);
+  async function revokeAccessToken(token) {
+    const claims = await verifyAccessToken(token, config.tokenSecret);
 
     if (!claims?.jti || !claims.exp) {
       return false;

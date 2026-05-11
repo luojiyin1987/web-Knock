@@ -1,0 +1,78 @@
+repos:
+  # ─── Official basic hooks ───
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Trim trailing whitespace
+      - id: trailing-whitespace
+        exclude: ^src/public/styles\.css$
+
+      # Ensure files end with a single newline
+      - id: end-of-file-fixer
+
+      # Validate YAML syntax
+      - id: check-yaml
+
+      # Validate JSON syntax (package.json, etc.)
+      - id: check-json
+
+      # Check for unresolved merge conflict markers
+      - id: check-merge-conflict
+
+      # Detect hard-coded private keys / credentials
+      - id: detect-private-key
+
+      # Prevent accidental commits directly to main
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+
+      # Prevent large files from being committed
+      - id: check-added-large-files
+        args: ["--maxkb", "500"]
+
+      # Ensure executable files have shebangs
+      - id: check-executables-have-shebangs
+
+      # Check for broken symlinks
+      - id: check-symlinks
+
+  # ─── Node.js / project specific ───
+  - repo: local
+    hooks:
+      # Run the test suite before push (not on every commit to keep commits fast)
+      - id: npm-test
+        name: Run test suite
+        entry: npm test
+        language: system
+        types: [javascript]
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Optional: run tests on commit as well (uncomment if you prefer stricter checks)
+      # - id: npm-test-commit
+      #   name: Run test suite (commit)
+      #   entry: npm test
+      #   language: system
+      #   types: [javascript]
+      #   pass_filenames: false
+      #   stages: [pre-commit]
+
+  # ─── Optional: uncomment after installing devDependencies ───
+  #
+  # Install first: npm install --save-dev prettier eslint
+  #
+  # - repo: local
+  #   hooks:
+  #     - id: prettier
+  #       name: Prettier formatting
+  #       entry: npx prettier --write
+  #       language: system
+  #       types_or: [javascript, json, yaml, markdown, css, html]
+  #       pass_filenames: true
+  #
+  #     - id: eslint
+  #       name: ESLint linting
+  #       entry: npx eslint --fix
+  #       language: system
+  #       types: [javascript]
+  #       pass_filenames: true

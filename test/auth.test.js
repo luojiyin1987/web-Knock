@@ -495,3 +495,144 @@ test("successful login clears backoff state", async () => {
     _resetBackoffState();
   }
 });
+
+// ─── Cookie Session (dual-channel auth) ───
+
+test("login sets session cookie", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const res = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    assert.equal(res.status, 200);
+    const setCookie = res.headers.get("set-cookie");
+    assert.ok(setCookie);
+    assert.ok(setCookie.includes("knock_session="));
+    assert.ok(setCookie.includes("HttpOnly"));
+    assert.ok(setCookie.includes("SameSite=Lax"));
+  } finally {
+    server.close();
+  }
+});
+
+test("session endpoint accepts cookie session", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const loginRes = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    const cookie = loginRes.headers.get("set-cookie");
+
+    const sessionRes = await fetch(`${baseUrl}/v1/auth/session`, {
+      headers: { cookie }
+    });
+    assert.equal(sessionRes.status, 200);
+    const body = await sessionRes.json();
+    assert.equal(body.session.user.username, "alice");
+  } finally {
+    server.close();
+  }
+});
+
+test("forwardauth accepts cookie session", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const loginRes = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    const cookie = loginRes.headers.get("set-cookie");
+
+    const authRes = await fetch(`${baseUrl}/_auth`, {
+      headers: { cookie, accept: "application/json" }
+    });
+    assert.equal(authRes.status, 200);
+    assert.equal(authRes.headers.get("x-forwarded-user"), "alice");
+  } finally {
+    server.close();
+  }
+});
+
+test("logout clears session cookie and destroys session", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const loginRes = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    const cookie = loginRes.headers.get("set-cookie");
+
+    const logoutRes = await fetch(`${baseUrl}/v1/auth/logout`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(logoutRes.status, 200);
+    const clearCookie = logoutRes.headers.get("set-cookie");
+    assert.ok(clearCookie);
+    assert.ok(clearCookie.includes("knock_session="));
+    assert.ok(clearCookie.includes("Expires=Thu, 01 Jan 1970"));
+
+    // Session should no longer work
+    const sessionRes = await fetch(`${baseUrl}/v1/auth/session`, {
+      headers: { cookie }
+    });
+    assert.equal(sessionRes.status, 401);
+  } finally {
+    server.close();
+  }
+});
+
+test("forwardauth returns 302 for unauthenticated html request", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const res = await fetch(`${baseUrl}/_auth`, {
+      headers: { accept: "text/html" },
+      redirect: "manual"
+    });
+    assert.equal(res.status, 302);
+    assert.ok(res.headers.get("location").includes("/_login"));
+  } finally {
+    server.close();
+  }
+});
+
+test("forwardauth returns 401 for unauthenticated api request", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const res = await fetch(`${baseUrl}/_auth`, {
+      headers: { accept: "application/json" }
+    });
+    assert.equal(res.status, 401);
+    const body = await res.json();
+    assert.equal(body.error, "unauthorized");
+  } finally {
+    server.close();
+  }
+});

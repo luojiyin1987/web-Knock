@@ -29,9 +29,12 @@ export function checkLoginBackoff(ip) {
 export function recordLoginFailure(ip) {
   const existing = backoffStore.get(ip);
   const count = (existing?.count ?? 0) + 1;
-  // Exponential: 1s, 2s, 4s, 8s, 16s, 32s, 60s...
-  const delay = Math.min(1000 * Math.pow(2, count - 1), MAX_DELAY_MS);
-  const blockedUntil = Date.now() + delay;
+  // Block starts after 3 failures; delay doubles each time (1s, 2s, 4s...)
+  const blockCount = Math.max(0, count - 2);
+  const delay = blockCount > 0
+    ? Math.min(1000 * Math.pow(2, blockCount - 1), MAX_DELAY_MS)
+    : 0;
+  const blockedUntil = delay > 0 ? Date.now() + delay : 0;
 
   backoffStore.set(ip, { count, blockedUntil });
 

@@ -44,8 +44,8 @@ function parseJsonEnv(env, name, fallback) {
   }
 }
 
-function parseNumber(name, fallback) {
-  const raw = process.env[name];
+function parseNumber(env, name, fallback) {
+  const raw = env[name];
 
   if (!raw) {
     return fallback;
@@ -60,17 +60,36 @@ function parseNumber(name, fallback) {
   return value;
 }
 
+function parseBoolean(env, name, fallback) {
+  const raw = env[name];
+
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  if (raw === "true") {
+    return true;
+  }
+
+  if (raw === "false") {
+    return false;
+  }
+
+  throw new Error(`${name} must be "true" or "false"`);
+}
+
 export function loadConfig(env = process.env) {
   const clients = parseJsonEnv(env, "KNOCK_CLIENTS", DEFAULT_CLIENTS);
   const users = parseJsonEnv(env, "KNOCK_USERS", DEFAULT_USERS);
   const allowedOrigins = parseJsonEnv(env, "KNOCK_ALLOWED_ORIGINS", ["*"]);
 
   return {
-    port: parseNumber("PORT", 3000),
+    port: parseNumber(env, "PORT", 3000),
     issuer: env.KNOCK_ISSUER ?? "knock.local",
     tokenSecret: env.KNOCK_TOKEN_SECRET ?? "dev-knock-secret-change-me",
-    accessTtlSeconds: parseNumber("KNOCK_ACCESS_TTL_SECONDS", 900),
-    refreshTtlSeconds: parseNumber("KNOCK_REFRESH_TTL_SECONDS", 604800),
+    accessTtlSeconds: parseNumber(env, "KNOCK_ACCESS_TTL_SECONDS", 900),
+    refreshTtlSeconds: parseNumber(env, "KNOCK_REFRESH_TTL_SECONDS", 604800),
+    trustProxy: parseBoolean(env, "KNOCK_TRUST_PROXY", false),
     clients,
     users,
     allowedOrigins

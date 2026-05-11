@@ -20,6 +20,11 @@ import {
 import { getClientIp, normalizeIp } from "./lib/ip-utils.js";
 import { checkLoginBackoff, recordLoginFailure, clearLoginBackoff } from "./lib/login-backoff.js";
 import { isHtmlRequest, isApiRequest } from "./lib/content-negotiation.js";
+import {
+  buildSessionCookie,
+  buildSessionClearCookie,
+  parseSessionCookie
+} from "./lib/session-cookie.js";
 
 async function normalizeUsers(rawUsers, algorithm) {
   return Promise.all(
@@ -48,6 +53,24 @@ function sanitizeClient(client) {
     name: client.name,
     scopes: client.scopes
   };
+}
+
+async function resolveAuth(authStore, request) {
+  // 1. Try cookie session first
+  const sessionId = parseSessionCookie(request);
+  if (sessionId) {
+    const claims = authStore.verifySession(sessionId);
+    if (claims) return { claims, sessionId };
+  }
+
+  // 2. Fall back to Bearer token
+  const token = getBearerToken(request);
+  if (token) {
+    const claims = await authStore.verifyToken(token);
+    if (claims) return { claims, sessionId: null };
+  }
+
+  return { claims: null, sessionId: null };
 }
 
 async function handleLogin(authStore, request, body, config) {
@@ -93,7 +116,17 @@ async function handleLogin(authStore, request, body, config) {
     requestedScopes: Array.isArray(parsed.scope) ? parsed.scope : []
   });
 
-  return { status: 200, body: tokens };
+  // Create browser session cookie
+  const scope = tokens.scope;
+  const sessionId = authStore.createSession({ client, user, scope });
+
+  return {
+    status: 200,
+    body: tokens,
+    headers: {
+      "set-cookie": buildSessionCookie(sessionId, config)
+    }
+  };
 }
 
 async function handleRefresh(authStore, body) {
@@ -155,12 +188,11 @@ async function handleIntrospect(authStore, body) {
 }
 
 async function handleSession(authStore, request) {
-  const token = getBearerToken(request);
-  const claims = await authStore.verifyToken(token);
+  const { claims } = await resolveAuth(authStore, request);
   if (!claims) {
     return {
       status: 401,
-      body: { error: "invalid_token", message: "Access token is invalid or expired." }
+      body: { error: "invalid_token", message: "Access token or session is invalid or expired." }
     };
   }
 
@@ -183,17 +215,18 @@ async function handleSession(authStore, request) {
   };
 }
 
-async function handleLogout(authStore, request, body) {
+async function handleLogout(authStore, request, body, config) {
   const parsed = logoutSchema.parse(body);
   const bearerToken = getBearerToken(request);
   const accessToken = parsed.accessToken ?? bearerToken;
+  const sessionId = parseSessionCookie(request);
 
-  if (!parsed.refreshToken && !accessToken) {
+  if (!parsed.refreshToken && !accessToken && !sessionId) {
     return {
       status: 400,
       body: {
         error: "validation_error",
-        message: "Either refreshToken, accessToken, or Authorization Bearer token must be provided."
+        message: "Either refreshToken, accessToken, Authorization Bearer token, or session cookie must be provided."
       }
     };
   }
@@ -201,12 +234,22 @@ async function handleLogout(authStore, request, body) {
   const refreshRevoked = authStore.revokeRefreshToken(parsed.refreshToken);
   const accessRevoked = await authStore.revokeAccessToken(accessToken);
 
-  return { status: 200, body: { revoked: refreshRevoked || accessRevoked } };
+  // Also destroy browser session if present
+  if (sessionId) {
+    authStore.destroySession(sessionId);
+  }
+
+  return {
+    status: 200,
+    body: { revoked: refreshRevoked || accessRevoked || !!sessionId },
+    headers: {
+      "set-cookie": buildSessionClearCookie(config)
+    }
+  };
 }
 
 async function handleForwardAuth(authStore, request) {
-  const token = getBearerToken(request);
-  const claims = await authStore.verifyToken(token);
+  const { claims } = await resolveAuth(authStore, request);
 
   if (claims) {
     return {
@@ -287,7 +330,7 @@ export async function createKnockServer(overrides = {}) {
     {
       method: "POST",
       path: "/v1/auth/logout",
-      handler: async (req, body) => handleLogout(authStore, req, body)
+      handler: async (req, body) => handleLogout(authStore, req, body, config)
     }
   ];
 

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knock Gateway Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Knock</p>
+        <h1>通用鉴权网关</h1>
+        <p class="intro">
+          一个零依赖的 MVP：统一登录、签发访问令牌、刷新令牌、会话查询和令牌校验。
+        </p>
+        <div class="cards">
+          <article class="mini-card">
+            <span>默认 Client</span>
+            <strong>dashboard-web</strong>
+          </article>
+          <article class="mini-card">
+            <span>默认用户</span>
+            <strong>alice / knock-knock</strong>
+          </article>
+          <article class="mini-card">
+            <span>默认端口</span>
+            <strong>3000</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <form id="login-form" class="panel">
+          <h2>登录换 Token</h2>
+          <label>Client ID<input name="clientId" value="dashboard-web" required /></label>
+          <label>Client Secret<input name="clientSecret" value="dashboard-secret" required /></label>
+          <label>Username<input name="username" value="alice" required /></label>
+          <label>Password<input name="password" type="password" value="knock-knock" required /></label>
+          <button type="submit">Login</button>
+        </form>
+
+        <form id="session-form" class="panel">
+          <h2>查询 Session</h2>
+          <label>Access Token<textarea name="accessToken" rows="6" required></textarea></label>
+          <button type="submit">Get Session</button>
+        </form>
+
+        <form id="refresh-form" class="panel">
+          <h2>刷新 Token</h2>
+          <label>Client ID<input name="clientId" value="dashboard-web" required /></label>
+          <label>Client Secret<input name="clientSecret" value="dashboard-secret" required /></label>
+          <label>Refresh Token<textarea name="refreshToken" rows="4" required></textarea></label>
+          <button type="submit">Refresh</button>
+        </form>
+
+        <form id="introspect-form" class="panel">
+          <h2>校验 Token</h2>
+          <label>Client ID<input name="clientId" value="internal-api" required /></label>
+          <label>Client Secret<input name="clientSecret" value="internal-secret" required /></label>
+          <label>Token<textarea name="token" rows="4" required></textarea></label>
+          <button type="submit">Introspect</button>
+        </form>
+      </section>
+
+      <section class="output panel">
+        <div class="output-head">
+          <h2>响应结果</h2>
+          <button id="clear-output" type="button" class="ghost">Clear</button>
+        </div>
+        <pre id="output">{}</pre>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

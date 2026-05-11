@@ -1,0 +1,15 @@
+{
+  "name": "web-knock",
+  "version": "0.1.0",
+  "description": "Knock: a generic authentication gateway MVP for web applications.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

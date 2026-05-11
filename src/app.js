@@ -233,15 +233,11 @@ async function handleLogout(authStore, request, body, config) {
 
   const refreshRevoked = authStore.revokeRefreshToken(parsed.refreshToken);
   const accessRevoked = await authStore.revokeAccessToken(accessToken);
-
-  // Also destroy browser session if present
-  if (sessionId) {
-    authStore.destroySession(sessionId);
-  }
+  const sessionRevoked = sessionId ? authStore.destroySession(sessionId) : false;
 
   return {
     status: 200,
-    body: { revoked: refreshRevoked || accessRevoked || !!sessionId },
+    body: { revoked: refreshRevoked || accessRevoked || sessionRevoked },
     headers: {
       "set-cookie": buildSessionClearCookie(config)
     }
@@ -269,7 +265,8 @@ async function handleForwardAuth(authStore, request) {
   }
 
   // HTML request: redirect to login page
-  const callback = encodeURIComponent(request.url || "/");
+  const originalUri = request.headers["x-forwarded-uri"] || request.url || "/";
+  const callback = encodeURIComponent(originalUri);
   return {
     status: 302,
     body: {},
@@ -285,7 +282,10 @@ export async function createKnockServer(overrides = {}) {
     ...baseConfig,
     ...overrides,
     clients: overrides.clients ?? baseConfig.clients,
-    users: await normalizeUsers(overrides.users ?? baseConfig.users, baseConfig.passwordAlgorithm),
+    users: await normalizeUsers(
+      overrides.users ?? baseConfig.users,
+      overrides.passwordAlgorithm ?? baseConfig.passwordAlgorithm
+    ),
     allowedOrigins: overrides.allowedOrigins ?? baseConfig.allowedOrigins
   };
   const authStore = createAuthStore(config);
@@ -300,6 +300,7 @@ export async function createKnockServer(overrides = {}) {
       })
     },
     { method: "GET", path: "/", handler: async () => ({ static: "index.html" }) },
+    { method: "GET", path: "/_login", handler: async () => ({ static: "index.html" }) },
     { method: "GET", path: "/styles.css", handler: async () => ({ static: "styles.css" }) },
     { method: "GET", path: "/app.js", handler: async () => ({ static: "app.js" }) },
     {

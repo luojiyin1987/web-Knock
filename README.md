@@ -81,6 +81,8 @@ Authorization: Bearer <access-token>
 }
 ```
 
+调用该接口的 client 必须具备 `introspect` scope，否则返回 `403 insufficient_scope`。
+
 #### `POST /v1/auth/logout`
 
 可以传 `refreshToken`、`accessToken`，或者直接使用 Bearer Token / Cookie Session。
@@ -92,7 +94,7 @@ Authorization: Bearer <access-token>
 用于 Traefik `forwardAuth` 或 Nginx `auth_request` 的鉴权检查端点。
 
 - **API 请求**（`Accept: application/json`）：未认证返回 `401 Unauthorized`
-- **浏览器请求**（`Accept: text/html`）：未认证返回 `302` 重定向到 `/_login?callback=<原始路径>`
+- **浏览器请求**（`Accept: text/html`）：未认证返回 `302` 重定向到 `/_login?callback=<原始路径>`，且 `callback` 只接受站内相对路径
 - **认证成功**：返回 `200 OK` + `X-Forwarded-User: <username>` 响应头
 
 反向代理配置示例（Traefik）：

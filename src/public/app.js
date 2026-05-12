@@ -1,6 +1,9 @@
+import { sanitizeCallbackPath } from "./callback-path.js";
+
 const output = document.querySelector("#output");
 const clearButton = document.querySelector("#clear-output");
-const callbackPath = new URLSearchParams(window.location.search).get("callback");
+const callbackParam = new URLSearchParams(window.location.search).get("callback");
+const callbackPath = callbackParam === null ? null : sanitizeCallbackPath(callbackParam, "/");
 
 function writeOutput(payload) {
   output.textContent = JSON.stringify(payload, null, 2);

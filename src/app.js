@@ -25,6 +25,7 @@ import {
   buildSessionClearCookie,
   parseSessionCookie
 } from "./lib/session-cookie.js";
+import { sanitizeCallbackPath } from "./public/callback-path.js";
 
 async function normalizeUsers(rawUsers, algorithm) {
   return Promise.all(
@@ -53,6 +54,10 @@ function sanitizeClient(client) {
     name: client.name,
     scopes: client.scopes
   };
+}
+
+function clientHasScope(client, scope) {
+  return Array.isArray(client?.scopes) && client.scopes.includes(scope);
 }
 
 async function resolveAuth(authStore, request) {
@@ -164,6 +169,16 @@ async function handleIntrospect(authStore, body) {
     };
   }
 
+  if (!clientHasScope(client, "introspect")) {
+    return {
+      status: 403,
+      body: {
+        error: "insufficient_scope",
+        message: 'Client is missing required "introspect" scope.'
+      }
+    };
+  }
+
   const claims = await authStore.verifyToken(parsed.token);
   if (!claims) {
     return { status: 200, body: { active: false } };
@@ -266,7 +281,7 @@ async function handleForwardAuth(authStore, request) {
 
   // HTML request: redirect to login page
   const originalUri = request.headers["x-forwarded-uri"] || request.url || "/";
-  const callback = encodeURIComponent(originalUri);
+  const callback = encodeURIComponent(sanitizeCallbackPath(originalUri));
   return {
     status: 302,
     body: {},
@@ -303,6 +318,7 @@ export async function createKnockServer(overrides = {}) {
     { method: "GET", path: "/_login", handler: async () => ({ static: "index.html" }) },
     { method: "GET", path: "/styles.css", handler: async () => ({ static: "styles.css" }) },
     { method: "GET", path: "/app.js", handler: async () => ({ static: "app.js" }) },
+    { method: "GET", path: "/callback-path.js", handler: async () => ({ static: "callback-path.js" }) },
     {
       method: "GET",
       path: "/_auth",

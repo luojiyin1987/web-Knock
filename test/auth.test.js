@@ -5,6 +5,7 @@ import { createKnockServer } from "../src/app.js";
 import { _resetBackoffState } from "../src/lib/login-backoff.js";
 import { getClientIp, normalizeIp } from "../src/lib/ip-utils.js";
 import { loadConfig } from "../src/config.js";
+import { sanitizeCallbackPath } from "../src/public/callback-path.js";
 
 async function startTestServer(overrides = {}) {
   _resetBackoffState();
@@ -195,6 +196,55 @@ test("rejects invalid client credentials", async () => {
   }
 });
 
+test("introspect requires client introspect scope", async () => {
+  const { server, baseUrl } = await startTestServer({
+    clients: [
+      {
+        id: "dashboard-web",
+        secret: "dashboard-secret",
+        name: "Dashboard Web",
+        scopes: ["profile", "introspect"]
+      },
+      {
+        id: "limited-client",
+        secret: "limited-secret",
+        name: "Limited Client",
+        scopes: ["profile"]
+      }
+    ]
+  });
+
+  try {
+    const loginResponse = await fetch(`${baseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "dashboard-web",
+        clientSecret: "dashboard-secret",
+        username: "alice",
+        password: "knock-knock"
+      })
+    });
+    const loginPayload = await loginResponse.json();
+
+    const introspectResponse = await fetch(`${baseUrl}/v1/auth/introspect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "limited-client",
+        clientSecret: "limited-secret",
+        token: loginPayload.accessToken
+      })
+    });
+
+    assert.equal(introspectResponse.status, 403);
+    const introspectPayload = await introspectResponse.json();
+    assert.equal(introspectPayload.error, "insufficient_scope");
+  } finally {
+    server.close();
+  }
+});
+
 test("rejects invalid user credentials", async () => {
   const { server, baseUrl } = await startTestServer();
   try {
@@ -350,6 +400,13 @@ test("ip-utils extracts client IP correctly", () => {
 
   assert.equal(normalizeIp("::ffff:192.168.1.1"), "192.168.1.1");
   assert.equal(normalizeIp("192.168.1.1"), "192.168.1.1");
+});
+
+test("sanitizeCallbackPath only accepts site-relative paths", () => {
+  assert.equal(sanitizeCallbackPath("/protected?tab=1"), "/protected?tab=1");
+  assert.equal(sanitizeCallbackPath("https://evil.example", "/"), "/");
+  assert.equal(sanitizeCallbackPath("//evil.example", "/"), "/");
+  assert.equal(sanitizeCallbackPath("javascript:alert(1)", "/"), "/");
 });
 
 test("loadConfig honors explicit env object including trustProxy", () => {
@@ -676,6 +733,23 @@ test("forwardauth returns 302 for unauthenticated html request", async () => {
     });
     assert.equal(res.status, 302);
     assert.equal(res.headers.get("location"), "/_login?callback=%2Fprotected%2Fresource");
+  } finally {
+    server.close();
+  }
+});
+
+test("forwardauth normalizes unsafe callback targets to root", async () => {
+  const { server, baseUrl } = await startTestServer();
+  try {
+    const res = await fetch(`${baseUrl}/_auth`, {
+      headers: {
+        accept: "text/html",
+        "x-forwarded-uri": "https://evil.example/phish"
+      },
+      redirect: "manual"
+    });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), "/_login?callback=%2F");
   } finally {
     server.close();
   }
